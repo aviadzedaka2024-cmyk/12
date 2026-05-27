@@ -78,7 +78,7 @@
   <div id="startOverlay">
     <div id="startBox">
       <h1>יער מהיר</h1>
-      <p>השחקן מחזיק גרזן ביער. נתחמק, תנוע עם החיצים, ותשבור את כל 8 העצים בתוך 25 שניות.</p>
+      <p>השחקן מחזיק גרזן ביער. נתחמק, תנוע עם החיצים, ותשבור את כל 8 העצים בתוך 30 שניות.</p>
       <button id="startButton">התחלה</button>
     </div>
   </div>
@@ -135,6 +135,8 @@
 
     const treeMaterial = new THREE.MeshStandardMaterial({ color: 0x3a6f2b, roughness: 0.75 });
     const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x7b4c2e, roughness: 0.92 });
+    const distantTreeMaterial = new THREE.MeshStandardMaterial({ color: 0x2d5520, roughness: 0.85, fog: true });
+    const distantTrunkMaterial = new THREE.MeshStandardMaterial({ color: 0x5a3d23, roughness: 0.95 });
 
     const treePositions = [
       { x: 10, z: -6 }, { x: 6, z: 8 }, { x: -5, z: 7 }, { x: -9, z: -2 },
@@ -145,31 +147,45 @@
     const treeGroup = new THREE.Group();
     scene.add(treeGroup);
 
-    function createTree(position) {
+    function createTree(position, isDistant = false) {
       const tree = new THREE.Group();
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 3, 12), trunkMaterial);
-      trunk.position.y = 1.5;
-      trunk.castShadow = true;
+      const mat = isDistant ? distantTrunkMaterial : trunkMaterial;
+      const crownMat = isDistant ? distantTreeMaterial : treeMaterial;
+      const scale = isDistant ? 0.6 : 1;
+      
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.7 * scale, 0.7 * scale, 3 * scale, 12), mat);
+      trunk.position.y = 1.5 * scale;
+      trunk.castShadow = !isDistant;
       trunk.receiveShadow = true;
       tree.add(trunk);
 
-      const crown = new THREE.Mesh(new THREE.ConeGeometry(2.4, 4, 16), treeMaterial);
-      crown.position.y = 4.2;
-      crown.castShadow = true;
+      const crown = new THREE.Mesh(new THREE.ConeGeometry(2.4 * scale, 4 * scale, 16), crownMat);
+      crown.position.y = 4.2 * scale;
+      crown.castShadow = !isDistant;
       tree.add(crown);
 
-      const topLeaf = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 16), treeMaterial);
-      topLeaf.position.y = 6.1;
-      topLeaf.castShadow = true;
+      const topLeaf = new THREE.Mesh(new THREE.SphereGeometry(1.2 * scale, 16, 16), crownMat);
+      topLeaf.position.y = 6.1 * scale;
+      topLeaf.castShadow = !isDistant;
       tree.add(topLeaf);
 
       tree.position.set(position.x, 0, position.z);
-      tree.userData = { hits: 3, alive: true, baseY: 0 };
+      tree.userData = { hits: 3, alive: true, baseY: 0, isDistant: isDistant };
       treeGroup.add(tree);
-      trees.push(tree);
+      if (!isDistant) trees.push(tree);
     }
 
-    treePositions.forEach(createTree);
+    treePositions.forEach(pos => createTree(pos, false));
+
+    // Create distant forest background
+    const distantForestCount = 35;
+    for (let i = 0; i < distantForestCount; i++) {
+      const angle = (i / distantForestCount) * Math.PI * 2;
+      const distance = 45 + Math.random() * 25;
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      createTree({ x, z }, true);
+    }
 
     const player = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.55, 1.3, 4, 16), new THREE.MeshStandardMaterial({ color: 0x1c2a4a, roughness: 0.35 }));
@@ -308,7 +324,7 @@
     function startGame() {
       overlay.style.display = 'none';
       gameActive = true;
-      timeRemaining = 25;
+      timeRemaining = 30;
       resetTrees();
       showMessage('לחץ על המסך כדי להכות בעץ.', '');
       lastHitTime = 0;
@@ -469,5 +485,4 @@
     animate();
   </script>
 </body>
-</html> 
-
+</html>
