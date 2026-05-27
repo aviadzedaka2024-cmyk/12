@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>משחק חצות עץ בתלת מימד</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; font-family: Arial, Helvetica, sans-serif; direction: rtl; }
+    body { background: #ffffff; color: #111; }
+    canvas { display: block; }
+    #startOverlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.96);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    #startBox {
+      text-align: center;
+      background: rgba(20, 20, 40, 0.92);
+      color: #fff;
+      border-radius: 32px;
+      padding: 48px 38px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.22);
+      max-width: 420px;
+      width: 100%;
+    }
+    #startBox h1 {
+      margin: 0 0 18px;
+      font-size: 2.8rem;
+      letter-spacing: 0.08em;
+    }
+    #startBox p {
+      margin: 0 0 30px;
+      opacity: 0.82;
+      line-height: 1.5;
+    }
+    #startButton {
+      width: 100%;
+      font-size: 2.1rem;
+      padding: 18px 20px;
+      border: none;
+      border-radius: 24px;
+      background: linear-gradient(135deg, #7b41ff, #2ed1ff);
+      color: white;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.25);
+    }
+    #startButton:hover { transform: translateY(-2px); box-shadow: 0 22px 48px rgba(0,0,0,0.28); }
+    #hud {
+      position: absolute;
+      inset: auto 32px 32px 32px;
+      z-index: 5;
+      display: grid;
+      gap: 12px;
+      width: min(360px, calc(100% - 64px));
+    }
+    .hudCard {
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+      font-size: 1.05rem;
+      font-weight: 600;
+    }
+    #message { font-size: 1.25rem; text-align: center; }
+    #message.win { color: #0b7;
+    }
+    #message.lose { color: #d11; }
+  </style>
+</head>
+<body>
+  <div id="startOverlay">
+    <div id="startBox">
+      <h1>יער מהיר</h1>
+      <p>השחקן מחזיק גרזן ביער. נתחמק, תנוע עם החיצים, ותשבור את כל 8 העצים בתוך 25 שניות.</p>
+      <button id="startButton">התחלה</button>
+    </div>
+  </div>
+  <div id="hud">
+    <div class="hudCard" id="status">עצים נשארו: 8</div>
+    <div class="hudCard" id="timer">30.00 שניות</div>
+    <div class="hudCard" id="message">לחץ על המסך כדי להכות בעץ.</div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.min.js"></script>
+  <script>
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xffffff);
+
+    const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, 5, 12);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio ? window.devicePixelRatio : 1);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    const ambientLight = new THREE.HemisphereLight(0xffffff, 0xb0c7ff, 0.85);
+    scene.add(ambientLight);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+    sun.position.set(12, 18, 10);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 80;
+    sun.shadow.camera.left = -20;
+    sun.shadow.camera.right = 20;
+    sun.shadow.camera.top = 20;
+    sun.shadow.camera.bottom = -20;
+    scene.add(sun);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(160, 160),
+      new THREE.MeshStandardMaterial({ color: 0x74c46f, roughness: 0.88, metalness: 0.02 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const road = new THREE.Mesh(
+      new THREE.PlaneGeometry(28, 38),
+      new THREE.MeshStandardMaterial({ color: 0xf5f7ff, roughness: 0.95, metalness: 0.02 })
+    );
+    road.rotation.x = -Math.PI / 2;
+    road.position.y = 0.01;
+    road.receiveShadow = true;
+    scene.add(road);
+
+    const treeMaterial = new THREE.MeshStandardMaterial({ color: 0x3a6f2b, roughness: 0.75 });
+    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x7b4c2e, roughness: 0.92 });
+
+    const treePositions = [
+      { x: 10, z: -6 }, { x: 6, z: 8 }, { x: -5, z: 7 }, { x: -9, z: -2 },
+      { x: 1, z: -11 }, { x: -12, z: 5 }, { x: 12, z: 10 }, { x: -2, z: 13 }
+    ];
+
+    const trees = [];
+    const treeGroup = new THREE.Group();
+    scene.add(treeGroup);
+
+    function createTree(position) {
+      const tree = new THREE.Group();
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 3, 12), trunkMaterial);
+      trunk.position.y = 1.5;
+      trunk.castShadow = true;
+      trunk.receiveShadow = true;
+      tree.add(trunk);
+
+      const crown = new THREE.Mesh(new THREE.ConeGeometry(2.4, 4, 16), treeMaterial);
+      crown.position.y = 4.2;
+      crown.castShadow = true;
+      tree.add(crown);
+
+      const topLeaf = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 16), treeMaterial);
+      topLeaf.position.y = 6.1;
+      topLeaf.castShadow = true;
+      tree.add(topLeaf);
+
+      tree.position.set(position.x, 0, position.z);
+      tree.userData = { hits: 3, alive: true, baseY: 0 };
+      treeGroup.add(tree);
+      trees.push(tree);
+    }
+
+    treePositions.forEach(createTree);
+
+    const player = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.55, 1.3, 4, 16), new THREE.MeshStandardMaterial({ color: 0x1c2a4a, roughness: 0.35 }));
+    body.position.y = 1.1;
+    body.castShadow = true;
+    player.add(body);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 16), new THREE.MeshStandardMaterial({ color: 0xf9d1b0, roughness: 0.6 }));
+    head.position.set(0, 2.25, 0);
+    head.castShadow = true;
+    player.add(head);
+
+    const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 });
+    const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 10), eyeMaterial);
+    leftEye.position.set(-0.16, 2.35, 0.4);
+    player.add(leftEye);
+    const rightEye = leftEye.clone();
+    rightEye.position.x = 0.16;
+    player.add(rightEye);
+
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.04), new THREE.MeshStandardMaterial({ color: 0x7b4a2d, roughness: 0.9 }));
+    mouth.position.set(0, 2.05, 0.42);
+    player.add(mouth);
+
+    const limbMaterial = new THREE.MeshStandardMaterial({ color: 0x1c2a4a, roughness: 0.4 });
+    const handMaterial = new THREE.MeshStandardMaterial({ color: 0xf9d1b0, roughness: 0.6 });
+
+    const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1.0, 12), limbMaterial);
+    leftLeg.position.set(-0.22, 0.45, 0);
+    leftLeg.castShadow = true;
+    player.add(leftLeg);
+    const rightLeg = leftLeg.clone();
+    rightLeg.position.x = 0.22;
+    player.add(rightLeg);
+
+    const leftFoot = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.1, 0.5), new THREE.MeshStandardMaterial({ color: 0x2a3a5a, roughness: 0.55 }));
+    leftFoot.position.set(-0.22, 0.0, 0.15);
+    leftFoot.castShadow = true;
+    player.add(leftFoot);
+    const rightFoot = leftFoot.clone();
+    rightFoot.position.x = 0.22;
+    player.add(rightFoot);
+
+    const walkState = { cycle: 0 };
+
+    const leftArm = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 1.0, 12), limbMaterial);
+    leftArm.position.set(-0.75, 1.35, 0);
+    leftArm.rotation.z = 0.35;
+    leftArm.castShadow = true;
+    player.add(leftArm);
+    const rightArm = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 1.0, 12), limbMaterial);
+    rightArm.position.set(0.78, 1.35, 0);
+    rightArm.rotation.z = -0.25;
+    rightArm.castShadow = true;
+    player.add(rightArm);
+
+    const leftHand = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 12), handMaterial);
+    leftHand.position.set(-1.2, 1.0, 0);
+    leftHand.castShadow = true;
+    player.add(leftHand);
+    const rightHand = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), handMaterial);
+    rightHand.position.set(1.4, 0.95, 0);
+    rightHand.castShadow = true;
+    player.add(rightHand);
+
+    const axeGroup = new THREE.Group();
+    const axeHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.4, 12), new THREE.MeshStandardMaterial({ color: 0x593916, roughness: 0.9 }));
+    axeHandle.position.set(0, -0.65, 0);
+    axeHandle.rotation.z = 0.1;
+    axeHandle.castShadow = true;
+    axeGroup.add(axeHandle);
+
+    const axeHead = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.9, 0.45), new THREE.MeshStandardMaterial({ color: 0x9ea2a9, roughness: 0.18, metalness: 0.85 }));
+    axeHead.position.set(0.35, -0.05, 0);
+    axeHead.rotation.z = 0.16;
+    axeHead.castShadow = true;
+    axeGroup.add(axeHead);
+
+    const axeBlade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.9, 0.55), new THREE.MeshStandardMaterial({ color: 0x2f363f, roughness: 0.18, metalness: 0.95 }));
+    axeBlade.position.set(0.45, -0.05, 0);
+    axeBlade.castShadow = true;
+    axeGroup.add(axeBlade);
+
+    axeGroup.position.set(1.4, 1.2, 0);
+    axeGroup.rotation.z = -0.35;
+    player.add(axeGroup);
+
+    player.position.set(0, 0, 0);
+    player.castShadow = true;
+    scene.add(player);
+
+    const axesHelper = new THREE.AxesHelper(1.8);
+    axesHelper.visible = false;
+    scene.add(axesHelper);
+
+    let canHit = true;
+    let gameActive = false;
+    let timeRemaining = 30;
+    let treeCount = trees.length;
+    let lastHitTime = 0;
+    let hitSwing = 0;
+    const statusText = document.getElementById('status');
+    const timerText = document.getElementById('timer');
+    const messageText = document.getElementById('message');
+    const overlay = document.getElementById('startOverlay');
+    const startButton = document.getElementById('startButton');
+
+    const moveState = { forward: false, backward: false, left: false, right: false };
+    const playerSpeed = 8;
+    const targetCameraPos = new THREE.Vector3();
+    const directionVector = new THREE.Vector3();
+    const targetLookAt = new THREE.Vector3();
+
+    function updateHUD() {
+      statusText.textContent = `עצים נשארו: ${treeCount}`;
+      timerText.textContent = `${timeRemaining.toFixed(2)} שניות`;
+    }
+
+    function showMessage(text, type) {
+      messageText.textContent = text;
+      messageText.className = type ? type : '';
+    }
+
+    function resetTrees() {
+      trees.forEach((tree, index) => {
+        tree.visible = true;
+        tree.userData.hits = 3;
+        tree.userData.alive = true;
+        tree.position.y = tree.userData.baseY;
+        tree.rotation.set(0,0,0);
+      });
+      treeCount = trees.length;
+      updateHUD();
+    }
+
+    function startGame() {
+      overlay.style.display = 'none';
+      gameActive = true;
+      timeRemaining = 25;
+      resetTrees();
+      showMessage('לחץ על המסך כדי להכות בעץ.', '');
+      lastHitTime = 0;
+      player.position.set(0, 0, 0);
+      player.rotation.y = Math.PI;
+      camera.position.set(0, 5, 12);
+      camera.lookAt(player.position);
+      updateHUD();
+    }
+
+    function endGame(win) {
+      gameActive = false;
+      overlay.style.display = 'flex';
+      startButton.textContent = win ? 'שחק שוב' : 'נסה שוב';
+      showMessage(win ? 'נצחת! כל העצים נשברו.' : 'הזמן נגמר! הפסדת.', win ? 'win' : 'lose');
+      statusText.textContent = `עצים נשארו: ${treeCount}`;
+    }
+
+    function handleMovement(delta) {
+      directionVector.set(0, 0, 0);
+      if (moveState.forward) directionVector.z -= 1;
+      if (moveState.backward) directionVector.z += 1;
+      if (moveState.left) directionVector.x -= 1;
+      if (moveState.right) directionVector.x += 1;
+      if (directionVector.lengthSq() > 0) {
+        directionVector.normalize();
+        player.position.add(directionVector.multiplyScalar(playerSpeed * delta));
+        player.position.clamp(new THREE.Vector3(-18, 0, -18), new THREE.Vector3(18, 0, 18));
+      }
+    }
+
+    function getNearestTree() {
+      let nearest = null;
+      let nearestDistance = Infinity;
+      trees.forEach(tree => {
+        if (!tree.userData.alive) return;
+        const dist = tree.position.distanceTo(player.position);
+        if (dist < 4 && dist < nearestDistance) {
+          nearestDistance = dist;
+          nearest = tree;
+        }
+      });
+      return nearest;
+    }
+
+    function hitTree() {
+      if (!gameActive || !canHit) return;
+      const target = getNearestTree();
+      if (!target) {
+        showMessage('אין עץ בטווח ההכה. התקרב ותנסה שוב.', '');
+        return;
+      }
+      canHit = false;
+      hitSwing = 1;
+      const tree = target;
+      tree.userData.hits -= 1;
+      const damageColor = new THREE.Color(0xd95757);
+
+      const originalColor = tree.children[0].material.color.clone();
+      tree.children.forEach(part => {
+        if (part.material) part.material.color.set(damageColor);
+      });
+      setTimeout(() => {
+        tree.children.forEach((part, index) => {
+          if (part.material) part.material.color.copy(originalColor);
+        });
+      }, 120);
+
+      if (tree.userData.hits <= 0) {
+        tree.userData.alive = false;
+        treeCount -= 1;
+        updateHUD();
+        showMessage('עץ נפל! נשארו ' + treeCount + ' עצים.', '');
+        const fallDirection = Math.sign(player.position.x - tree.position.x) || 1;
+        const fallAmount = fallDirection * 0.9;
+        const fallAnimation = setInterval(() => {
+          tree.rotation.z += 0.05 * fallDirection;
+          if (Math.abs(tree.rotation.z) > 1.3) {
+            clearInterval(fallAnimation);
+            tree.visible = false;
+          }
+        }, 16);
+        if (treeCount === 0) {
+          setTimeout(() => endGame(true), 400);
+        }
+      } else {
+        updateHUD();
+      }
+      setTimeout(() => (canHit = true), 320);
+    }
+
+    window.addEventListener('keydown', (event) => {
+      switch (event.code) {
+        case 'ArrowUp': moveState.forward = true; break;
+        case 'ArrowDown': moveState.backward = true; break;
+        case 'ArrowLeft': moveState.left = true; break;
+        case 'ArrowRight': moveState.right = true; break;
+      }
+    });
+
+    window.addEventListener('keyup', (event) => {
+      switch (event.code) {
+        case 'ArrowUp': moveState.forward = false; break;
+        case 'ArrowDown': moveState.backward = false; break;
+        case 'ArrowLeft': moveState.left = false; break;
+        case 'ArrowRight': moveState.right = false; break;
+      }
+    });
+
+    renderer.domElement.addEventListener('pointerdown', () => {
+      if (!gameActive) return;
+      hitTree();
+    });
+
+    startButton.addEventListener('click', startGame);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    let lastFrameTime = performance.now();
+    function animate() {
+      const now = performance.now();
+      const delta = Math.min((now - lastFrameTime) / 1000, 0.034);
+      lastFrameTime = now;
+      if (gameActive) {
+        timeRemaining -= delta;
+        if (timeRemaining <= 0) {
+          timeRemaining = 0;
+          endGame(false);
+        }
+        updateHUD();
+      }
+      handleMovement(delta);
+      if (moveState.forward || moveState.backward || moveState.left || moveState.right) {
+        walkState.cycle += delta * 10;
+      } else {
+        walkState.cycle = 0;
+      }
+      leftLeg.rotation.x = Math.sin(walkState.cycle) * 0.5;
+      rightLeg.rotation.x = Math.sin(walkState.cycle + Math.PI) * 0.5;
+      if (hitSwing > 0) {
+        hitSwing = Math.max(0, hitSwing - delta * 4.2);
+        const axeGroup = player.children.find(child => child.type === 'Group');
+        if (axeGroup) axeGroup.rotation.z = THREE.MathUtils.lerp(-0.35, -0.85, hitSwing);
+      }
+      targetCameraPos.copy(player.position).add(new THREE.Vector3(0, 4.4, 10));
+      camera.position.lerp(targetCameraPos, 0.08);
+      targetLookAt.copy(player.position).add(new THREE.Vector3(0, 1.6, 0));
+      camera.lookAt(targetLookAt);
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+
+    updateHUD();
+    animate();
+  </script>
+</body>
+</html>
